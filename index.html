@@ -22,6 +22,7 @@
     <div id="toolbar">
         <button onclick="setTool('block')" id="btn-block" class="active">Block</button>
         <button onclick="setTool('spike')" id="btn-spike">Spike</button>
+        <button onclick="setTool('keyspike')" id="btn-keyspike" style="color: #55f; border: 1px solid #55f;">Key Spike</button>
         <button onclick="setTool('spring')" id="btn-spring" style="color: #ff8c00;">Spring</button>
         <button onclick="setTool('key')" id="btn-key" style="color: gold;">Key</button>
         <button onclick="setTool('keyblock')" id="btn-keyblock" style="color: #55f;">Key Block</button>
@@ -138,7 +139,12 @@
                 for(let x=0; x<cols; x++) {
                     const obj = activeGrid[y][x]; if (!obj) continue;
                     const tx = x*TILE_SIZE, ty = y*TILE_SIZE;
-                    if (player.x < tx + TILE_SIZE && player.x + player.size > tx && player.y < ty + TILE_SIZE && player.y + player.size > ty) {
+                    
+                    // Reduced Spike Hitbox (1.5x smaller = 66% size)
+                    const hitboxPadding = (obj.type === 'spike' || obj.type === 'keyspike') ? TILE_SIZE * 0.15 : 0;
+                    const hX = tx + hitboxPadding, hY = ty + hitboxPadding, hS = TILE_SIZE - (hitboxPadding * 2);
+
+                    if (player.x < hX + hS && player.x + player.size > hX && player.y < hY + hS && player.y + player.size > hY) {
                         
                         if (obj.type === 'block' || (obj.type === 'keyblock' && !blocksToggled)) {
                             if (isX) {
@@ -153,6 +159,7 @@
                             if (player.vy > 0) { player.vy = -20; player.onGround = false; }
                         }
                         else if (!isX && obj.type === 'spike') die();
+                        else if (!isX && obj.type === 'keyspike' && !blocksToggled) die();
                         else if (!isX && obj.type === 'key') { blocksToggled = !blocksToggled; activeGrid[y][x] = null; }
                         else if (!isX && obj.type === 'goal') { alert("Goal!"); toggleMode(); }
                     }
@@ -174,7 +181,14 @@
                     ctx.rotate(cell.rot * Math.PI / 180);
                     
                     if (cell.type === 'block') { ctx.fillStyle = '#666'; ctx.fillRect(-18, -18, 36, 36); }
-                    else if (cell.type === 'spike') { ctx.fillStyle = '#f44'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, 15); ctx.lineTo(-15, 15); ctx.fill(); }
+                    else if (cell.type === 'spike') { 
+                        ctx.fillStyle = '#f44'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, 15); ctx.lineTo(-15, 15); ctx.fill(); 
+                    }
+                    else if (cell.type === 'keyspike') {
+                        ctx.strokeStyle = '#55f'; ctx.lineWidth = 2;
+                        if (!blocksToggled) { ctx.fillStyle = '#f44'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, 15); ctx.lineTo(-15, 15); ctx.fill(); }
+                        ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, 15); ctx.lineTo(-15, 15); ctx.closePath(); ctx.stroke();
+                    }
                     else if (cell.type === 'key') { ctx.fillStyle = 'gold'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI*2); ctx.fill(); ctx.fillRect(0, 0, 10, 4); }
                     else if (cell.type === 'spring') { ctx.fillStyle = '#ff8c00'; ctx.fillRect(-15, 5, 30, 10); ctx.fillStyle = '#ddd'; ctx.fillRect(-12, -5, 24, 5); }
                     else if (cell.type === 'keyblock') {
