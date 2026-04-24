@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Platformer Maker - Key Update</title>
+    <title>Platformer Maker - Key & Rotate</title>
     <style>
         body { font-family: sans-serif; background: #1a1a1a; color: #eee; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; }
         #toolbar { background: #2d2d2d; padding: 10px; border-radius: 8px; margin-bottom: 10px; display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; }
@@ -26,6 +26,7 @@
         <button onclick="setTool('keyblock')" id="btn-keyblock" style="color: #55f;">Key Block</button>
         <button onclick="setTool('goal')" id="btn-goal">Goal</button>
         <button onclick="setTool('eraser')" id="btn-eraser">Eraser</button>
+        <button onclick="rotate()">Rotate ↻ <span id="rotLabel">(0°)</span></button>
         <button onclick="toggleGrid()" id="btn-grid">Grid: ON</button>
         <button onclick="toggleMode()" id="btn-mode" style="background: #28a745;">PLAYTEST</button>
     </div>
@@ -52,14 +53,28 @@
         const TILE_SIZE = 40;
         let cols = 20, rows = 10, grid = Array(rows).fill().map(() => Array(cols).fill(null));
         let currentTool = 'block', isPlaying = false, showGrid = true, isDead = false;
-        let hasKey = false;
+        let currentRotation = 0, hasKey = false;
+        
+        // We keep a backup of the grid to restore keys/items on death
+        let playGrid = null;
 
         let player = { x: 40, y: 40, vx: 0, vy: 0, size: 24, onGround: false, active: true };
 
         function updateCanvasSize() { canvas.width = cols * TILE_SIZE; canvas.height = rows * TILE_SIZE; }
         updateCanvasSize();
 
-        function setTool(t) { currentTool = t; document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active')); document.getElementById('btn-'+t).classList.add('active'); }
+        function setTool(t) { 
+            currentTool = t; 
+            document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active')); 
+            const btn = document.getElementById('btn-'+t);
+            if(btn) btn.classList.add('active'); 
+        }
+
+        function rotate() {
+            currentRotation = (currentRotation + 90) % 360;
+            document.getElementById('rotLabel').innerText = `(${currentRotation}°)`;
+        }
+
         function toggleGrid() { showGrid = !showGrid; document.getElementById('btn-grid').innerText = `Grid: ${showGrid ? 'ON' : 'OFF'}`; }
 
         function resizeLevel() {
@@ -76,7 +91,9 @@
                 player.x = TILE_SIZE; player.y = TILE_SIZE;
                 player.vx = 0; player.vy = 0;
                 player.active = true; isDead = false;
-                hasKey = false; // Key resets on death
+                hasKey = false;
+                // Deep copy the original grid to respawn keys
+                playGrid = JSON.parse(JSON.stringify(grid));
             }, 1000);
         }
 
@@ -86,13 +103,17 @@
             document.getElementById('btn-mode').style.background = isPlaying ? "#d33" : "#28a745";
             player.active = true; isDead = false; hasKey = false;
             player.x = TILE_SIZE; player.y = TILE_SIZE;
+            // Create the gameplay version of the grid
+            if(isPlaying) playGrid = JSON.parse(JSON.stringify(grid));
         }
 
         canvas.addEventListener('mousedown', e => {
             if (isPlaying) return;
             const r = canvas.getBoundingClientRect();
             const x = Math.floor((e.clientX - r.left) / TILE_SIZE), y = Math.floor((e.clientY - r.top) / TILE_SIZE);
-            if (x >= 0 && x < cols && y >= 0 && y < rows) grid[y][x] = currentTool === 'eraser' ? null : { type: currentTool };
+            if (x >= 0 && x < cols && y >= 0 && y < rows) {
+                grid[y][x] = currentTool === 'eraser' ? null : { type: currentTool, rot: currentRotation };
+            }
         });
 
         const keys = {};
@@ -106,7 +127,7 @@
             else player.vx *= 0.8;
 
             if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.onGround) { player.vy = -11; player.onGround = false; }
-            player.vy += 0.6; // Grav
+            player.vy += 0.6;
 
             player.x += player.vx; checkCollisions(true);
             player.y += player.vy; player.onGround = false; checkCollisions(false);
@@ -115,9 +136,10 @@
         }
 
         function checkCollisions(isX) {
+            const activeGrid = isPlaying ? playGrid : grid;
             for(let y=0; y<rows; y++) {
                 for(let x=0; x<cols; x++) {
-                    const obj = grid[y][x]; if (!obj) continue;
+                    const obj = activeGrid[y][x]; if (!obj) continue;
                     const tx = x*TILE_SIZE, ty = y*TILE_SIZE;
                     if (player.x < tx + TILE_SIZE && player.x + player.size > tx && player.y < ty + TILE_SIZE && player.y + player.size > ty) {
                         if (obj.type === 'block' || (obj.type === 'keyblock' && !hasKey)) {
@@ -129,7 +151,7 @@
                                 else if (player.vy < 0) { player.y = ty + TILE_SIZE; player.vy = 0; }
                             }
                         } else if (!isX && obj.type === 'spike') die();
-                        else if (!isX && obj.type === 'key') { hasKey = true; grid[y][x] = null; }
+                        else if (!isX && obj.type === 'key') { hasKey = true; activeGrid[y][x] = null; }
                         else if (!isX && obj.type === 'goal') { alert("Goal!"); toggleMode(); }
                     }
                 }
@@ -138,19 +160,26 @@
 
         function draw() {
             ctx.fillStyle = '#000'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+            const activeGrid = isPlaying ? playGrid : grid;
             for(let y=0; y<rows; y++) {
                 for(let x=0; x<cols; x++) {
                     if (showGrid && !isPlaying) { ctx.strokeStyle = '#222'; ctx.strokeRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE); }
-                    const cell = grid[y][x]; if (!cell) continue;
-                    const px = x*TILE_SIZE, py = y*TILE_SIZE;
-                    if (cell.type === 'block') { ctx.fillStyle = '#666'; ctx.fillRect(px+2, py+2, 36, 36); }
-                    else if (cell.type === 'spike') { ctx.fillStyle = '#f44'; ctx.beginPath(); ctx.moveTo(px+20, py+5); ctx.lineTo(px+35, py+35); ctx.lineTo(px+5, py+35); ctx.fill(); }
-                    else if (cell.type === 'key') { ctx.fillStyle = 'gold'; ctx.beginPath(); ctx.arc(px+20, py+20, 8, 0, Math.PI*2); ctx.fill(); ctx.fillRect(px+20, py+20, 10, 4); }
+                    const cell = activeGrid[y][x]; if (!cell) continue;
+                    const px = x*TILE_SIZE + TILE_SIZE/2, py = y*TILE_SIZE + TILE_SIZE/2;
+                    
+                    ctx.save();
+                    ctx.translate(px, py);
+                    ctx.rotate(cell.rot * Math.PI / 180);
+                    
+                    if (cell.type === 'block') { ctx.fillStyle = '#666'; ctx.fillRect(-18, -18, 36, 36); }
+                    else if (cell.type === 'spike') { ctx.fillStyle = '#f44'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(15, 15); ctx.lineTo(-15, 15); ctx.fill(); }
+                    else if (cell.type === 'key') { ctx.fillStyle = 'gold'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI*2); ctx.fill(); ctx.fillRect(0, 0, 10, 4); }
                     else if (cell.type === 'keyblock') {
-                        ctx.strokeStyle = '#55f'; ctx.lineWidth = 3; ctx.strokeRect(px+5, py+5, 30, 30);
-                        if (!hasKey) { ctx.fillStyle = 'rgba(85, 85, 255, 0.5)'; ctx.fillRect(px+5, py+5, 30, 30); }
+                        ctx.strokeStyle = '#55f'; ctx.lineWidth = 3; ctx.strokeRect(-15, -15, 30, 30);
+                        if (!hasKey) { ctx.fillStyle = 'rgba(85, 85, 255, 0.5)'; ctx.fillRect(-15, -15, 30, 30); }
                     }
-                    else if (cell.type === 'goal') { ctx.fillStyle = '#0f0'; ctx.fillRect(px+15, py+5, 5, 30); ctx.fillStyle = '#fff'; ctx.fillRect(px+20, py+5, 15, 10); }
+                    else if (cell.type === 'goal') { ctx.fillStyle = '#0f0'; ctx.fillRect(-5, -15, 5, 30); ctx.fillStyle = '#fff'; ctx.fillRect(0, -15, 15, 10); }
+                    ctx.restore();
                 }
             }
             if (isPlaying && player.active) { ctx.fillStyle = '#0ff'; ctx.fillRect(player.x, player.y, player.size, player.size); }
