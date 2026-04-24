@@ -3,17 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Platformer Maker</title>
+    <title>Platformer Maker Pro</title>
     <style>
-        body { font-family: sans-serif; background: #222; color: #fff; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
-        #toolbar { background: #333; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; border: 1px solid #444; }
-        canvas { background: #000; border: 2px solid #555; cursor: crosshair; image-rendering: pixelated; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
-        button { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; background: #555; color: white; font-weight: bold; transition: 0.2s; }
-        button:hover { background: #777; }
-        button.active { background: #007bff; box-shadow: 0 0 8px #007bff; }
-        .controls { margin-top: 15px; display: flex; gap: 10px; align-items: center; width: 100%; max-width: 800px; }
-        input { flex-grow: 1; padding: 10px; border-radius: 4px; border: 1px solid #555; background: #111; color: #0f0; font-family: monospace; }
-        .instructions { font-size: 0.8em; color: #aaa; margin-top: 10px; text-align: center; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #1a1a1a; color: #eee; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 10px; }
+        #toolbar { background: #2d2d2d; padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; border: 1px solid #444; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .canvas-container { position: relative; overflow: auto; max-width: 95vw; max-height: 70vh; border: 3px solid #444; background: #000; border-radius: 4px; }
+        canvas { display: block; image-rendering: pixelated; }
+        button { padding: 8px 14px; cursor: pointer; border: none; border-radius: 4px; background: #444; color: white; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #666; }
+        button.active { background: #007bff; box-shadow: 0 0 10px rgba(0,123,255,0.5); }
+        .config-panel { background: #2d2d2d; padding: 10px; border-radius: 8px; display: flex; gap: 15px; margin-bottom: 10px; font-size: 0.9em; border: 1px solid #444; }
+        .config-group { display: flex; align-items: center; gap: 5px; }
+        input[type='number'] { width: 50px; background: #111; color: #fff; border: 1px solid #555; padding: 4px; border-radius: 4px; }
+        .controls { margin-top: 15px; display: flex; gap: 10px; align-items: center; width: 100%; max-width: 900px; }
+        #levelCode { flex-grow: 1; padding: 10px; border-radius: 4px; border: 1px solid #555; background: #111; color: #0f0; font-family: monospace; }
+        .instructions { font-size: 0.8em; color: #888; margin-top: 10px; text-align: center; line-height: 1.4; }
+        .toggle-btn { background: #6f42c1; }
     </style>
 </head>
 <body>
@@ -21,49 +26,90 @@
     <div id="toolbar">
         <button onclick="setTool('block')" id="btn-block" class="active">Block</button>
         <button onclick="setTool('spike')" id="btn-spike">Spike</button>
-        <button onclick="setTool('goal')" id="btn-goal">Goal Flag</button>
+        <button onclick="setTool('goal')" id="btn-goal">Goal</button>
         <button onclick="setTool('eraser')" id="btn-eraser">Eraser</button>
         <button onclick="rotate()">Rotate ↻ <span id="rotLabel">(0°)</span></button>
+        <button onclick="toggleGrid()" id="btn-grid" class="toggle-btn">Grid: ON</button>
         <button onclick="toggleMode()" id="btn-mode" style="background: #28a745;">PLAYTEST</button>
     </div>
 
-    <canvas id="gameCanvas"></canvas>
+    <div class="config-panel">
+        <div class="config-group">
+            <label>Width:</label>
+            <input type="number" id="inpWidth" value="20" min="5" max="100" onchange="resizeLevel()">
+        </div>
+        <div class="config-group">
+            <label>Height:</label>
+            <input type="number" id="inpHeight" value="10" min="5" max="50" onchange="resizeLevel()">
+        </div>
+    </div>
+
+    <div class="canvas-container">
+        <canvas id="gameCanvas"></canvas>
+    </div>
 
     <div class="controls">
-        <input type="text" id="levelCode" placeholder="Paste Level Code Here">
-        <button onclick="loadLevel()" style="background: #6c757d;">Load Code</button>
-        <button onclick="publishLevel()" style="background: #17a2b8;">Copy My Level Code</button>
+        <input type="text" id="levelCode" placeholder="Paste code to load level...">
+        <button onclick="loadLevel()">Load Level</button>
+        <button onclick="publishLevel()" style="background: #17a2b8;">Publish & Copy Code</button>
     </div>
 
     <div class="instructions">
-        <strong>Editor:</strong> Left-click to place objects. <strong>Play:</strong> Space to Jump, Arrows to Move.
+        <strong>Editor:</strong> Left-click to place objects. Change numbers above to resize. <br>
+        <strong>Play:</strong> Space/Up/W to Jump, Arrows/WASD to Move.
     </div>
 
     <script>
         const canvas = document.getElementById('gameCanvas');
         const ctx = canvas.getContext('2d');
         const TILE_SIZE = 40;
+        
         let cols = 20, rows = 10;
-        canvas.width = cols * TILE_SIZE;
-        canvas.height = rows * TILE_SIZE;
-
         let grid = Array(rows).fill().map(() => Array(cols).fill(null));
         let currentTool = 'block';
         let currentRotation = 0;
         let isPlaying = false;
+        let showGrid = true;
 
-        // Player physics
-        let player = { x: 50, y: 50, vx: 0, vy: 0, size: 22, onGround: false };
+        let player = { x: 50, y: 50, vx: 0, vy: 0, size: 24, onGround: false };
+
+        function updateCanvasSize() {
+            canvas.width = cols * TILE_SIZE;
+            canvas.height = rows * TILE_SIZE;
+        }
+        updateCanvasSize();
 
         function setTool(tool) {
             currentTool = tool;
             document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
-            document.getElementById('btn-' + tool).classList.add('active');
+            const btn = document.getElementById('btn-' + tool);
+            if(btn) btn.classList.add('active');
         }
 
         function rotate() {
             currentRotation = (currentRotation + 90) % 360;
             document.getElementById('rotLabel').innerText = `(${currentRotation}°)`;
+        }
+
+        function toggleGrid() {
+            showGrid = !showGrid;
+            document.getElementById('btn-grid').innerText = `Grid: ${showGrid ? 'ON' : 'OFF'}`;
+        }
+
+        function resizeLevel() {
+            const newCols = parseInt(document.getElementById('inpWidth').value);
+            const newRows = parseInt(document.getElementById('inpHeight').value);
+            
+            let newGrid = Array(newRows).fill().map(() => Array(newCols).fill(null));
+            for(let y = 0; y < Math.min(rows, newRows); y++) {
+                for(let x = 0; x < Math.min(cols, newCols); x++) {
+                    newGrid[y][x] = grid[y][x];
+                }
+            }
+            cols = newCols;
+            rows = newRows;
+            grid = newGrid;
+            updateCanvasSize();
         }
 
         function toggleMode() {
@@ -94,128 +140,110 @@
         window.onkeyup = e => keys[e.code] = false;
 
         function update() {
-            if (isPlaying) {
-                // Movement
-                if (keys['ArrowLeft']) player.vx = -4;
-                else if (keys['ArrowRight']) player.vx = 4;
-                else player.vx *= 0.8; // Friction
+            if (!isPlaying) return;
 
-                if ((keys['Space'] || keys['ArrowUp']) && player.onGround) { 
-                    player.vy = -10; 
-                    player.onGround = false; 
-                }
-                
-                player.vy += 0.5; // Gravity
-                player.x += player.vx;
-                player.y += player.vy;
+            if (keys['ArrowLeft'] || keys['KeyA']) player.vx = -5;
+            else if (keys['ArrowRight'] || keys['KeyD']) player.vx = 5;
+            else player.vx *= 0.8;
 
-                // Collisions & Hazard Detection
-                player.onGround = false;
-                
-                // Screen boundaries
-                if (player.x < 0) player.x = 0;
-                if (player.x > canvas.width - player.size) player.x = canvas.width - player.size;
-                if (player.y > canvas.height) toggleMode(); // Fell off
+            if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.onGround) { 
+                player.vy = -11; 
+                player.onGround = false; 
+            }
+            
+            player.vy += 0.6; // Gravity
+            
+            player.x += player.vx; // Move X
+            checkCollisions(true);
+            
+            player.y += player.vy; // Move Y
+            player.onGround = false;
+            checkCollisions(false);
 
-                // Tile-based Collision
-                for(let y=0; y<rows; y++) {
-                    for(let x=0; x<cols; x++) {
-                        const obj = grid[y][x];
-                        if (!obj) continue;
+            if (player.y > canvas.height + 100) toggleMode(); 
+        }
 
-                        const tx = x * TILE_SIZE;
-                        const ty = y * TILE_SIZE;
+        function checkCollisions(isX) {
+            for(let y=0; y<rows; y++) {
+                for(let x=0; x<cols; x++) {
+                    const obj = grid[y][x];
+                    if (!obj) continue;
+                    const tx = x * TILE_SIZE, ty = y * TILE_SIZE;
 
-                        // AABB Collision check
-                        if (player.x < tx + TILE_SIZE && player.x + player.size > tx &&
-                            player.y < ty + TILE_SIZE && player.y + player.size > ty) {
-                            
-                            if (obj.type === 'block') {
-                                // Simple floor landing logic
-                                if (player.vy > 0 && player.y + player.size - player.vy <= ty) {
+                    if (player.x < tx + TILE_SIZE && player.x + player.size > tx &&
+                        player.y < ty + TILE_SIZE && player.y + player.size > ty) {
+                        
+                        if (obj.type === 'block') {
+                            if (isX) {
+                                if (player.vx > 0) player.x = tx - player.size;
+                                else if (player.vx < 0) player.x = tx + TILE_SIZE;
+                                player.vx = 0;
+                            } else {
+                                if (player.vy > 0) { // Top collision
                                     player.y = ty - player.size;
+                                    player.vy = 0; player.onGround = true;
+                                } else if (player.vy < 0) { // Bottom collision
+                                    player.y = ty + TILE_SIZE;
                                     player.vy = 0;
-                                    player.onGround = true;
-                                } else {
-                                    player.x -= player.vx; // Basic wall stop
                                 }
-                            } else if (obj.type === 'spike') {
-                                toggleMode(); // Reset
-                            } else if (obj.type === 'goal') {
-                                alert("Level Completed! 🏆");
-                                toggleMode();
                             }
-                        }
+                        } else if (!isX && obj.type === 'spike') toggleMode();
+                        else if (!isX && obj.type === 'goal') { alert("Win!"); toggleMode(); }
                     }
                 }
             }
         }
 
         function draw() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
             
-            // Draw Editor Grid
             for(let y=0; y<rows; y++) {
                 for(let x=0; x<cols; x++) {
-                    ctx.strokeStyle = isPlaying ? '#111' : '#333';
-                    ctx.strokeRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
-                    
+                    if (showGrid && !isPlaying) {
+                        ctx.strokeStyle = '#222';
+                        ctx.strokeRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    }
                     const cell = grid[y][x];
                     if (cell) {
                         ctx.save();
                         ctx.translate(x*TILE_SIZE + TILE_SIZE/2, y*TILE_SIZE + TILE_SIZE/2);
                         ctx.rotate(cell.rot * Math.PI / 180);
-                        
                         if (cell.type === 'block') { 
-                            ctx.fillStyle = '#888'; 
-                            ctx.fillRect(-18, -18, 36, 36); 
-                            ctx.strokeStyle = '#fff';
-                            ctx.strokeRect(-18, -18, 36, 36);
-                        }
-                        else if (cell.type === 'spike') { 
+                            ctx.fillStyle = '#666'; ctx.fillRect(-19, -19, 38, 38);
+                            ctx.strokeStyle = '#aaa'; ctx.strokeRect(-19, -19, 38, 38);
+                        } else if (cell.type === 'spike') { 
                             ctx.fillStyle = '#ff4444'; ctx.beginPath(); 
                             ctx.moveTo(0, -18); ctx.lineTo(18, 18); ctx.lineTo(-18, 18); ctx.fill(); 
-                        }
-                        else if (cell.type === 'goal') { 
-                            ctx.fillStyle = '#ffcc00'; ctx.fillRect(-4, -18, 8, 36); // Pole
-                            ctx.fillStyle = '#fff'; ctx.beginPath(); // Flag
-                            ctx.moveTo(4, -18); ctx.lineTo(18, -10); ctx.lineTo(4, -2); ctx.fill();
+                        } else if (cell.type === 'goal') { 
+                            ctx.fillStyle = '#ffd700'; ctx.fillRect(-3, -19, 6, 38);
+                            ctx.fillStyle = '#fff'; ctx.fillRect(3, -19, 16, 12);
                         }
                         ctx.restore();
                     }
                 }
             }
-
-            if (isPlaying) {
-                ctx.fillStyle = '#00ffff';
-                ctx.shadowBlur = 10;
-                ctx.shadowColor = '#00ffff';
-                ctx.fillRect(player.x, player.y, player.size, player.size);
-                ctx.shadowBlur = 0;
-            }
-            
+            if (isPlaying) { ctx.fillStyle = '#00f2ff'; ctx.fillRect(player.x, player.y, player.size, player.size); }
             requestAnimationFrame(() => { update(); draw(); });
         }
 
         function publishLevel() {
-            const code = btoa(JSON.stringify(grid));
+            const data = { g: grid, c: cols, r: rows };
+            const code = btoa(JSON.stringify(data));
             document.getElementById('levelCode').value = code;
-            navigator.clipboard.writeText(code).then(() => {
-                alert("Level code copied! Share this string with friends.");
-            });
+            navigator.clipboard.writeText(code).then(() => alert("Code copied to clipboard!"));
         }
 
         function loadLevel() {
             try {
                 const code = document.getElementById('levelCode').value;
-                if (!code) return;
-                grid = JSON.parse(atob(code));
-                alert("Level Loaded Successfully!");
-            } catch(e) { 
-                alert("Error: Invalid Level Code."); 
-            }
+                const data = JSON.parse(atob(code));
+                grid = data.g; cols = data.c; rows = data.r;
+                document.getElementById('inpWidth').value = cols;
+                document.getElementById('inpHeight').value = rows;
+                updateCanvasSize();
+            } catch(e) { alert("Invalid Code"); }
         }
-
         draw();
     </script>
 </body>
