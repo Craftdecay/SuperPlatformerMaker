@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Platformer Maker</title>
+    <style>
+        body { font-family: sans-serif; background: #222; color: #fff; display: flex; flex-direction: column; align-items: center; margin: 0; padding: 20px; }
+        #toolbar { background: #333; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; border: 1px solid #444; }
+        canvas { background: #000; border: 2px solid #555; cursor: crosshair; image-rendering: pixelated; box-shadow: 0 4px 15px rgba(0,0,0,0.5); }
+        button { padding: 8px 12px; cursor: pointer; border: none; border-radius: 4px; background: #555; color: white; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #777; }
+        button.active { background: #007bff; box-shadow: 0 0 8px #007bff; }
+        .controls { margin-top: 15px; display: flex; gap: 10px; align-items: center; width: 100%; max-width: 800px; }
+        input { flex-grow: 1; padding: 10px; border-radius: 4px; border: 1px solid #555; background: #111; color: #0f0; font-family: monospace; }
+        .instructions { font-size: 0.8em; color: #aaa; margin-top: 10px; text-align: center; }
+    </style>
+</head>
+<body>
+
+    <div id="toolbar">
+        <button onclick="setTool('block')" id="btn-block" class="active">Block</button>
+        <button onclick="setTool('spike')" id="btn-spike">Spike</button>
+        <button onclick="setTool('goal')" id="btn-goal">Goal Flag</button>
+        <button onclick="setTool('eraser')" id="btn-eraser">Eraser</button>
+        <button onclick="rotate()">Rotate ↻ <span id="rotLabel">(0°)</span></button>
+        <button onclick="toggleMode()" id="btn-mode" style="background: #28a745;">PLAYTEST</button>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+
+    <div class="controls">
+        <input type="text" id="levelCode" placeholder="Paste Level Code Here">
+        <button onclick="loadLevel()" style="background: #6c757d;">Load Code</button>
+        <button onclick="publishLevel()" style="background: #17a2b8;">Copy My Level Code</button>
+    </div>
+
+    <div class="instructions">
+        <strong>Editor:</strong> Left-click to place objects. <strong>Play:</strong> Space to Jump, Arrows to Move.
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const TILE_SIZE = 40;
+        let cols = 20, rows = 10;
+        canvas.width = cols * TILE_SIZE;
+        canvas.height = rows * TILE_SIZE;
+
+        let grid = Array(rows).fill().map(() => Array(cols).fill(null));
+        let currentTool = 'block';
+        let currentRotation = 0;
+        let isPlaying = false;
+
+        // Player physics
+        let player = { x: 50, y: 50, vx: 0, vy: 0, size: 22, onGround: false };
+
+        function setTool(tool) {
+            currentTool = tool;
+            document.querySelectorAll('#toolbar button').forEach(b => b.classList.remove('active'));
+            document.getElementById('btn-' + tool).classList.add('active');
+        }
+
+        function rotate() {
+            currentRotation = (currentRotation + 90) % 360;
+            document.getElementById('rotLabel').innerText = `(${currentRotation}°)`;
+        }
+
+        function toggleMode() {
+            isPlaying = !isPlaying;
+            const btn = document.getElementById('btn-mode');
+            btn.innerText = isPlaying ? "STOP / EDIT" : "PLAYTEST";
+            btn.style.background = isPlaying ? "#dc3545" : "#28a745";
+            if (isPlaying) {
+                player.x = TILE_SIZE; 
+                player.y = TILE_SIZE; 
+                player.vx = 0; 
+                player.vy = 0;
+            }
+        }
+
+        canvas.addEventListener('mousedown', e => {
+            if (isPlaying) return;
+            const rect = canvas.getBoundingClientRect();
+            const x = Math.floor((e.clientX - rect.left) / TILE_SIZE);
+            const y = Math.floor((e.clientY - rect.top) / TILE_SIZE);
+            if (x >= 0 && x < cols && y >= 0 && y < rows) {
+                grid[y][x] = currentTool === 'eraser' ? null : { type: currentTool, rot: currentRotation };
+            }
+        });
+
+        const keys = {};
+        window.onkeydown = e => keys[e.code] = true;
+        window.onkeyup = e => keys[e.code] = false;
+
+        function update() {
+            if (isPlaying) {
+                // Movement
+                if (keys['ArrowLeft']) player.vx = -4;
+                else if (keys['ArrowRight']) player.vx = 4;
+                else player.vx *= 0.8; // Friction
+
+                if ((keys['Space'] || keys['ArrowUp']) && player.onGround) { 
+                    player.vy = -10; 
+                    player.onGround = false; 
+                }
+                
+                player.vy += 0.5; // Gravity
+                player.x += player.vx;
+                player.y += player.vy;
+
+                // Collisions & Hazard Detection
+                player.onGround = false;
+                
+                // Screen boundaries
+                if (player.x < 0) player.x = 0;
+                if (player.x > canvas.width - player.size) player.x = canvas.width - player.size;
+                if (player.y > canvas.height) toggleMode(); // Fell off
+
+                // Tile-based Collision
+                for(let y=0; y<rows; y++) {
+                    for(let x=0; x<cols; x++) {
+                        const obj = grid[y][x];
+                        if (!obj) continue;
+
+                        const tx = x * TILE_SIZE;
+                        const ty = y * TILE_SIZE;
+
+                        // AABB Collision check
+                        if (player.x < tx + TILE_SIZE && player.x + player.size > tx &&
+                            player.y < ty + TILE_SIZE && player.y + player.size > ty) {
+                            
+                            if (obj.type === 'block') {
+                                // Simple floor landing logic
+                                if (player.vy > 0 && player.y + player.size - player.vy <= ty) {
+                                    player.y = ty - player.size;
+                                    player.vy = 0;
+                                    player.onGround = true;
+                                } else {
+                                    player.x -= player.vx; // Basic wall stop
+                                }
+                            } else if (obj.type === 'spike') {
+                                toggleMode(); // Reset
+                            } else if (obj.type === 'goal') {
+                                alert("Level Completed! 🏆");
+                                toggleMode();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw Editor Grid
+            for(let y=0; y<rows; y++) {
+                for(let x=0; x<cols; x++) {
+                    ctx.strokeStyle = isPlaying ? '#111' : '#333';
+                    ctx.strokeRect(x*TILE_SIZE, y*TILE_SIZE, TILE_SIZE, TILE_SIZE);
+                    
+                    const cell = grid[y][x];
+                    if (cell) {
+                        ctx.save();
+                        ctx.translate(x*TILE_SIZE + TILE_SIZE/2, y*TILE_SIZE + TILE_SIZE/2);
+                        ctx.rotate(cell.rot * Math.PI / 180);
+                        
+                        if (cell.type === 'block') { 
+                            ctx.fillStyle = '#888'; 
+                            ctx.fillRect(-18, -18, 36, 36); 
+                            ctx.strokeStyle = '#fff';
+                            ctx.strokeRect(-18, -18, 36, 36);
+                        }
+                        else if (cell.type === 'spike') { 
+                            ctx.fillStyle = '#ff4444'; ctx.beginPath(); 
+                            ctx.moveTo(0, -18); ctx.lineTo(18, 18); ctx.lineTo(-18, 18); ctx.fill(); 
+                        }
+                        else if (cell.type === 'goal') { 
+                            ctx.fillStyle = '#ffcc00'; ctx.fillRect(-4, -18, 8, 36); // Pole
+                            ctx.fillStyle = '#fff'; ctx.beginPath(); // Flag
+                            ctx.moveTo(4, -18); ctx.lineTo(18, -10); ctx.lineTo(4, -2); ctx.fill();
+                        }
+                        ctx.restore();
+                    }
+                }
+            }
+
+            if (isPlaying) {
+                ctx.fillStyle = '#00ffff';
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = '#00ffff';
+                ctx.fillRect(player.x, player.y, player.size, player.size);
+                ctx.shadowBlur = 0;
+            }
+            
+            requestAnimationFrame(() => { update(); draw(); });
+        }
+
+        function publishLevel() {
+            const code = btoa(JSON.stringify(grid));
+            document.getElementById('levelCode').value = code;
+            navigator.clipboard.writeText(code).then(() => {
+                alert("Level code copied! Share this string with friends.");
+            });
+        }
+
+        function loadLevel() {
+            try {
+                const code = document.getElementById('levelCode').value;
+                if (!code) return;
+                grid = JSON.parse(atob(code));
+                alert("Level Loaded Successfully!");
+            } catch(e) { 
+                alert("Error: Invalid Level Code."); 
+            }
+        }
+
+        draw();
+    </script>
+</body>
+</html>
